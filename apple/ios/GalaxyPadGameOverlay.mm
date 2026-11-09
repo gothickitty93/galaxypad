@@ -243,6 +243,8 @@ static CGFloat GalaxyPadDefaultSizeScaleForControl(UIView *view, NSString *ident
 
     galaxypad::InputState _touchState;
     UITouch *_pointerContact;
+    BOOL _pointerDoubleTapAHeld;
+    CFTimeInterval _pointerDoubleTapAStarted;
     BOOL _touchControlsHidden;
     uint32_t _accessibilityButtons;
     NSUInteger _accessibilityEpoch;
@@ -992,6 +994,8 @@ static CGFloat GalaxyPadDefaultSizeScaleForControl(UIView *view, NSString *ident
     [_moveStick reset];
     [_tiltStick reset];
     _pointerContact = nil;
+    _pointerDoubleTapAHeld = NO;
+    _pointerDoubleTapAStarted = 0;
     _touchState = {};
     if (self.inputChanged) self.inputChanged(_touchState);
 }
@@ -2121,16 +2125,14 @@ static CGFloat GalaxyPadDefaultSizeScaleForControl(UIView *view, NSString *ident
         if (CGRectContainsPoint(viewport, [touch locationInView:self])) {
             _pointerContact = touch;
             [self updatePointer];
-            // UIKit counts taps on the gameplay surface; controls are separate
-            // UIControls and never reach this pointer handler.
+            // Hold A for the entire second touch, including while dragging
+            // the pointer. A quick double-tap gets a short pulse on release.
             if (touch.tapCount == 2 &&
                 [NSUserDefaults.standardUserDefaults boolForKey:@"GalaxyPadPointerDoubleTapA"]) {
-                for (GalaxyPadGameButton *button in _buttons) {
-                    if (button.inputMask == galaxypad::A) {
-                        [self activateGameButton:button];
-                        break;
-                    }
-                }
+                _pointerDoubleTapAHeld = YES;
+                _pointerDoubleTapAStarted = CACurrentMediaTime();
+                _touchState.buttons |= galaxypad::A;
+                [self publishInput];
             }
             break;
         }
@@ -2143,14 +2145,33 @@ static CGFloat GalaxyPadDefaultSizeScaleForControl(UIView *view, NSString *ident
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     (void)event;
     if (_pointerContact && [touches containsObject:_pointerContact]) {
-        [self updatePointer]; _pointerContact = nil;
-        _touchState.pointerContact = false; [self publishInput];
+        [self updatePointer];
+        if (_pointerDoubleTapAHeld) {
+            // Preserve brief taps for guest polling without limiting a hold.
+            if (CACurrentMediaTime() - _pointerDoubleTapAStarted < 0.15) {
+                for (GalaxyPadGameButton *button in _buttons) {
+                    if (button.inputMask == galaxypad::A) {
+                        [self activateGameButton:button];
+                        break;
+                    }
+                }
+            }
+            _touchState.buttons &= ~galaxypad::A;
+            _pointerDoubleTapAHeld = NO;
+        }
+        _pointerContact = nil;
+        _touchState.pointerContact = false;
+        [self publishInput];
     }
 }
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     (void)event;
     if (_pointerContact && [touches containsObject:_pointerContact]) {
         _pointerContact = nil; _touchState.pointerVisible = false;
+        if (_pointerDoubleTapAHeld) {
+            _touchState.buttons &= ~galaxypad::A;
+            _pointerDoubleTapAHeld = NO;
+        }
         _touchState.pointerContact = false; [self publishInput];
     }
 }
