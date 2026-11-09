@@ -234,6 +234,7 @@ static CGFloat GalaxyPadDefaultSizeScaleForControl(UIView *view, NSString *ident
     UISlider *_selectedSizeSlider;
     UIButton *_selectedVisibilityButton;
     UISwitch *_hideControlsSwitch;
+    UISwitch *_doubleTapASwitch;
     UISwitch *_editLayoutSwitch;
     UIButton *_resetLayoutButton;
     UIView *_editorBar;
@@ -1358,6 +1359,13 @@ static CGFloat GalaxyPadDefaultSizeScaleForControl(UIView *view, NSString *ident
     [_selectedSizeSlider addTarget:self action:@selector(selectedSizeChanged:)
                    forControlEvents:UIControlEventValueChanged];
 
+    _doubleTapASwitch = [UISwitch new];
+    _doubleTapASwitch.on = [NSUserDefaults.standardUserDefaults boolForKey:@"GalaxyPadPointerDoubleTapA"];
+    _doubleTapASwitch.accessibilityIdentifier = @"galaxypad.touch.double-tap-a";
+    _doubleTapASwitch.accessibilityLabel = @"Double-tap pointer to press A";
+    [_doubleTapASwitch addTarget:self action:@selector(doubleTapAChanged:)
+                 forControlEvents:UIControlEventValueChanged];
+
     _hideControlsSwitch = [UISwitch new];
     _hideControlsSwitch.on = [GalaxyPadSettings sharedSettings].hideTouchControlsWhenControllerConnected;
     _hideControlsSwitch.accessibilityLabel = @"Hide touch controls when controller connected";
@@ -1384,6 +1392,7 @@ static CGFloat GalaxyPadDefaultSizeScaleForControl(UIView *view, NSString *ident
         [self settingsRowWithTitle:@"Opacity" control:_opacitySlider],
         [self settingsRowWithTitle:@"All sizes" control:_sizeSlider],
         [self settingsRowWithTitle:@"Hide on controller" control:_hideControlsSwitch],
+        [self settingsRowWithTitle:@"Double-tap for A" control:_doubleTapASwitch],
         [self settingsRowWithTitle:@"Move controls" control:_editLayoutSwitch],
         _resetLayoutButton,
     ]];
@@ -1493,6 +1502,12 @@ static CGFloat GalaxyPadDefaultSizeScaleForControl(UIView *view, NSString *ident
     row.alignment = UIStackViewAlignmentCenter;
     [row.heightAnchor constraintGreaterThanOrEqualToConstant:44.0].active = YES;
     return row;
+}
+
+- (void)doubleTapAChanged:(UISwitch *)sender {
+    [NSUserDefaults.standardUserDefaults setBool:sender.isOn
+                                         forKey:@"GalaxyPadPointerDoubleTapA"];
+    [self clearTouchInput];
 }
 
 - (void)toggleSettingsPanel {
@@ -2106,6 +2121,17 @@ static CGFloat GalaxyPadDefaultSizeScaleForControl(UIView *view, NSString *ident
         if (CGRectContainsPoint(viewport, [touch locationInView:self])) {
             _pointerContact = touch;
             [self updatePointer];
+            // UIKit counts taps on the gameplay surface; controls are separate
+            // UIControls and never reach this pointer handler.
+            if (touch.tapCount == 2 &&
+                [NSUserDefaults.standardUserDefaults boolForKey:@"GalaxyPadPointerDoubleTapA"]) {
+                for (GalaxyPadGameButton *button in _buttons) {
+                    if (button.inputMask == galaxypad::A) {
+                        [self activateGameButton:button];
+                        break;
+                    }
+                }
+            }
             break;
         }
     }
